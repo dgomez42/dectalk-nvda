@@ -1,0 +1,8 @@
+Expected DECtalk runtime layout:
+
+addon/synthDrivers32/dectalkRuntime/IA32/DECtalk.dll
+addon/synthDrivers32/dectalkRuntime/IA32/dtalk_us.dic
+addon/synthDrivers32/dectalkRuntime/IA32/lib/dtalk_us.dll
+
+The same 32-bit DECtalk runtime is used directly by older 32-bit NVDA and via
+NVDA's 32-bit synth host on 64-bit NVDA 2026.1+.
