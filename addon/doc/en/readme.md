@@ -5,7 +5,7 @@ DECtalk runtime.
 
 ## Runtime files
 
-Place the 32-bit DECtalk runtime files in the synth driver host folder:
+Make sure the 32-bit DECtalk runtime files in the synth driver host folder (should already be there in the release):
 
 - `addon/synthDrivers32/dectalkRuntime/IA32/DECtalk.dll`
 - `addon/synthDrivers32/dectalkRuntime/IA32/dtalk_us.dic`
