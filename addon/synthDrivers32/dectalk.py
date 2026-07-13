@@ -9,6 +9,7 @@ from ctypes import (
 	c_char,
 	c_char_p,
 	c_int,
+	c_short,
 	c_size_t,
 	c_ssize_t,
 	c_uint,
@@ -39,7 +40,6 @@ from speech.commands import IndexCommand
 from speech.commands import PitchCommand
 from speech.commands import SpeechCommand
 import synthDriverHandler
-from autoSettingsUtils.driverSetting import BooleanDriverSetting
 from autoSettingsUtils.driverSetting import NumericDriverSetting
 
 
@@ -125,6 +125,10 @@ def _configure_win32_prototypes() -> None:
 		c_size_t,
 	]
 	kernel32.MapViewOfFile.restype = c_void_p
+
+	ole32 = windll.ole32
+	ole32.CoTaskMemFree.argtypes = [c_void_p]
+	ole32.CoTaskMemFree.restype = None
 
 	user32 = windll.user32
 	user32.RegisterClassExW.argtypes = [POINTER(WNDCLASSEXW)]
@@ -262,6 +266,21 @@ def _configure_dectalk_prototypes(dll) -> None:
 	dll.TextToSpeechSetSpeaker.restype = c_uint
 	dll.TextToSpeechSetVolume.argtypes = [c_void_p, c_int, c_int]
 	dll.TextToSpeechSetVolume.restype = c_uint
+	try:
+		dll.TextToSpeechGetSpeakerParams.argtypes = [
+			c_void_p,
+			c_uint,
+			POINTER(POINTER(SPDEFS)),
+			POINTER(POINTER(SPDEFS)),
+			POINTER(POINTER(SPDEFS)),
+			POINTER(POINTER(SPDEFS)),
+		]
+		dll.TextToSpeechGetSpeakerParams.restype = c_uint
+		dll.TextToSpeechSetSpeakerParams.argtypes = [c_void_p, POINTER(SPDEFS)]
+		dll.TextToSpeechSetSpeakerParams.restype = c_uint
+		dll._supportsSpeakerParams = True
+	except AttributeError:
+		dll._supportsSpeakerParams = False
 	dll.TextToSpeechPause.argtypes = [c_void_p]
 	dll.TextToSpeechPause.restype = c_uint
 	dll.TextToSpeechResume.argtypes = [c_void_p]
@@ -280,6 +299,9 @@ def _configure_dectalk_prototypes(dll) -> None:
 		"TextToSpeechSetVolume",
 	):
 		getattr(dll, name).errcheck = errcheck
+	if dll._supportsSpeakerParams:
+		dll.TextToSpeechGetSpeakerParams.errcheck = errcheck
+		dll.TextToSpeechSetSpeakerParams.errcheck = errcheck
 
 
 def errcheck(res, func, args):
@@ -357,6 +379,50 @@ class TTS_BUFFER_T(Structure):
 	]
 
 
+class SPDEFS(Structure):
+	_fields_ = [
+		("sex", c_short),
+		("smoothness", c_short),
+		("assertiveness", c_short),
+		("average_pitch", c_short),
+		("pitch_range", c_short),
+		("breathiness", c_short),
+		("richness", c_short),
+		("num_fixed_samp_og", c_short),
+		("laryngealization", c_short),
+		("head_size", c_short),
+		("formant4_res_freq", c_short),
+		("formant4_bandwidth", c_short),
+		("formant5_res_freq", c_short),
+		("formant5_bandwidth", c_short),
+		("parallel4_freq", c_short),
+		("parallel5_freq", c_short),
+		("gain_frication", c_short),
+		("gain_aspiration", c_short),
+		("gain_voicing", c_short),
+		("gain_nasalization", c_short),
+		("gain_cfr1", c_short),
+		("gain_cfr2", c_short),
+		("gain_cfr3", c_short),
+		("gain_cfr4", c_short),
+		("loudness", c_short),
+		("spectral_tilt", c_short),
+		("baseline_fall", c_short),
+		("lax_breathiness", c_short),
+		("quickness", c_short),
+		("hat_rise", c_short),
+		("stress_rise", c_short),
+		("avg_glot_open", c_short),
+		("avg_glot_voicd_open", c_short),
+		("avg_glot_unv_open", c_short),
+		("area_chink", c_short),
+		("open_quo", c_short),
+		("output_gain_mult", c_short),
+		("junk", c_short),
+		("junk1", c_short),
+	]
+
+
 class SynthDriver(synthDriverHandler.SynthDriver):
 	name = "dectalk"
 	description = _("DECtalk")
@@ -367,7 +433,6 @@ class SynthDriver(synthDriverHandler.SynthDriver):
 		synthDriverHandler.SynthDriver.InflectionSetting(),
 		synthDriverHandler.SynthDriver.VolumeSetting(),
 		NumericDriverSetting("spf", _("&SPF"), True, defaultVal=100),
-		BooleanDriverSetting("pauses", _("&Shorten pauses"), True, defaultVal=True),
 	)
 	supportedCommands = {
 		IndexCommand,
@@ -404,7 +469,6 @@ class SynthDriver(synthDriverHandler.SynthDriver):
 	def __init__(self):
 		_configure_win32_prototypes()
 		self.dectalk = _load_dectalk()
-		self._pauses = True
 		self.wmIndex = windll.user32.RegisterWindowMessageW("DECtalkIndexMessage")
 		self.wmBuffer = windll.user32.RegisterWindowMessageW("DECtalkBufferMessage")
 		self._messageWindow = None
@@ -444,6 +508,7 @@ class SynthDriver(synthDriverHandler.SynthDriver):
 		self.minRate = caps.dwMinimumSpeakingRate
 		self.dt_version = caps.version
 		log.info("DECtalk Version %s.", self.dt_version)
+		self._apply_speaker_params()
 		self.mem_buffer = TTS_BUFFER_T()
 		self.index_array = (TTS_INDEX_T * INDEX_ARRAY_SIZE)()
 		self._buffer = create_string_buffer(SAMPLES * 2)
@@ -584,7 +649,6 @@ class SynthDriver(synthDriverHandler.SynthDriver):
 			bufferLength = lpBuffer.contents.dwMaximumBufferLength
 		if bufferLength and lpBuffer.contents.lpData:
 			self.audioData.write(string_at(lpBuffer.contents.lpData, bufferLength))
-			log.debug("DECtalk audio buffer received: %d bytes" % bufferLength)
 		if lpBuffer.contents.dwBufferLength == 0:
 			end = True
 		lpBuffer.contents.dwBufferLength = 0
@@ -613,15 +677,15 @@ class SynthDriver(synthDriverHandler.SynthDriver):
 
 	def speak(self, speechSequence):
 		textList = [
-			"[:skip none",
-			":mode spell off",
-			":punctuation some",
-			":dv ap %d" % self.dt_pitch,
-			":dv pr %d]" % self.dt_inflection,
-			"[:period 0] [:comma 0]",
+			"[:skip none]",
+			"[:mode spell off]",
+			"[:punctuation none]",
 		]
-		if self._pauses:
-			textList.append("[:period -380] [:comma -40]")
+		if not getattr(self.dectalk, "_supportsSpeakerParams", False):
+			textList.extend([
+				"[:dv ap %d]" % self.dt_pitch,
+				"[:dv pr %d]" % self.dt_inflection,
+			])
 		for item in speechSequence:
 			if isinstance(item, str):
 				textList.append(item)
@@ -649,7 +713,6 @@ class SynthDriver(synthDriverHandler.SynthDriver):
 				log.error("Unknown speech: %s" % item)
 		textList.append("[:index reply 32000]")
 		text = " ".join(textList).encode("iso8859-1", "ignore")
-		log.debug("DECtalk speak request: %d bytes" % len(text))
 		try:
 			self.dectalk.TextToSpeechSpeak(
 				self.handle,
@@ -705,9 +768,79 @@ class SynthDriver(synthDriverHandler.SynthDriver):
 	def _get_language(self):
 		return "en_US"
 
+	def _copy_speaker_params(self, params):
+		copy = SPDEFS()
+		for name, _type in SPDEFS._fields_:
+			setattr(copy, name, getattr(params, name))
+		return copy
+
+	def _free_speaker_params(self, *params):
+		ole32 = windll.ole32
+		for param in params:
+			if param:
+				ole32.CoTaskMemFree(cast(param, c_void_p))
+
+	def _get_speaker_params(self):
+		current = POINTER(SPDEFS)()
+		low = POINTER(SPDEFS)()
+		high = POINTER(SPDEFS)()
+		default = POINTER(SPDEFS)()
+		self.dectalk.TextToSpeechGetSpeakerParams(
+			self.handle,
+			self._voices[self._voice]["speaker"],
+			byref(current),
+			byref(low),
+			byref(high),
+			byref(default),
+		)
+		try:
+			source = current or default
+			if not source:
+				return None
+			params = self._copy_speaker_params(source.contents)
+			lowParams = self._copy_speaker_params(low.contents) if low else None
+			highParams = self._copy_speaker_params(high.contents) if high else None
+			return params, lowParams, highParams
+		finally:
+			self._free_speaker_params(current, low, high, default)
+
+	def _clamp_speaker_param(self, value, name, lowParams, highParams):
+		if lowParams is not None:
+			value = max(value, getattr(lowParams, name))
+		if highParams is not None:
+			value = min(value, getattr(highParams, name))
+		return value
+
+	def _apply_speaker_params(self):
+		if not getattr(self.dectalk, "_supportsSpeakerParams", False):
+			return
+		try:
+			result = self._get_speaker_params()
+			if result is None:
+				return
+			params, lowParams, highParams = result
+			params.average_pitch = self._clamp_speaker_param(
+				self.dt_pitch,
+				"average_pitch",
+				lowParams,
+				highParams,
+			)
+			params.pitch_range = self._clamp_speaker_param(
+				self.dt_inflection,
+				"pitch_range",
+				lowParams,
+				highParams,
+			)
+			self.dt_pitch = params.average_pitch
+			self.dt_inflection = params.pitch_range
+			self.dectalk.TextToSpeechSetSpeakerParams(self.handle, byref(params))
+		except Exception:
+			log.error("DECtalk failed to apply speaker parameters", exc_info=True)
+
 	def _set_inflection(self, inflection):
 		self.dt_inflection = self._percentToParam(inflection, self.minInflection, self.maxInflection)
 		log.info("DECtalk inflection set to %d" % self.dt_inflection)
+		self._apply_speaker_params()
 
 	def _get_pitch(self):
 		return self._paramToPercent(self.dt_pitch, self.minPitch, self.maxPitch)
@@ -715,6 +848,7 @@ class SynthDriver(synthDriverHandler.SynthDriver):
 	def _set_pitch(self, pitch):
 		self.dt_pitch = self._percentToParam(pitch, self.minPitch, self.maxPitch)
 		log.info("DECtalk pitch set to %d" % self.dt_pitch)
+		self._apply_speaker_params()
 
 	def _get_rate(self):
 		return self._paramToPercent(self.dt_rate, self.minRate, self.maxRate)
@@ -731,12 +865,6 @@ class SynthDriver(synthDriverHandler.SynthDriver):
 		self.dt_volume = volume / 100
 		log.info("DECtalk volume set to %d" % volume)
 		self.player.setVolume(all=self.dt_volume)
-
-	def _get_pauses(self):
-		return self._pauses
-
-	def _set_pauses(self, pauses):
-		self._pauses = pauses
 
 	def _get_spf(self):
 		return self._paramToPercent(self.dt_spf, self.minSPF, self.maxSPF)
@@ -755,6 +883,7 @@ class SynthDriver(synthDriverHandler.SynthDriver):
 		self._voice = val
 		log.info("DECtalk voice set to %s" % val)
 		self.dectalk.TextToSpeechSetSpeaker(self.handle, self._voices[val]["speaker"])
+		self._apply_speaker_params()
 
 	def _getAvailableVoices(self):
 		voices = OrderedDict()

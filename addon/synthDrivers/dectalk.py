@@ -19,12 +19,6 @@ if sizeof(c_void_p) == 8:
 		def _set_spf(self, value):
 			self._remoteService.setParam("spf", value)
 
-		def _get_pauses(self):
-			return self._remoteService.getParam("pauses")
-
-		def _set_pauses(self, value):
-			self._remoteService.setParam("pauses", value)
-
 else:
 	import importlib.util
 

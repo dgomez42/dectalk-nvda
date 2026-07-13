@@ -8,8 +8,8 @@ while 64-bit NVDA 2026.1+ uses NVDA's 32-bit synth host.
 
 Make sure all of the runtime files listed in `runtime-files.txt` are present, build the add-on:
 
-```powershell
-.\tools\package-addon.ps1
+```batch
+build.bat
 ```
 
 This creates one package that supports both older 32-bit NVDA releases and
