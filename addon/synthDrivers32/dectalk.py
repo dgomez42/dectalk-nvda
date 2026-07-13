@@ -30,6 +30,7 @@ import os
 from pathlib import Path
 from queue import Empty as QueueEmptyError
 from queue import SimpleQueue
+import re
 import threading
 
 import config
@@ -58,6 +59,11 @@ WM_CLOSE = 0x0010
 WM_DESTROY = 0x0002
 WM_QUIT = 0x0012
 WNDPROC = WINFUNCTYPE(c_ssize_t, c_void_p, c_uint, c_void_p, c_void_p)
+STRUCTURAL_DASH_RE = re.compile(
+	r"(?<=\s)[\-–—](?=\s)"
+	r"|^[\-–—](?=\s)",
+)
+MULTIPLE_SPACES_RE = re.compile(r"[ \t]{2,}")
 
 
 class WNDCLASSEXW(Structure):
@@ -689,7 +695,7 @@ class SynthDriver(synthDriverHandler.SynthDriver):
 		]
 		for item in speechSequence:
 			if isinstance(item, str):
-				textList.append(item)
+				textList.append(self._prepare_text(item))
 			elif isinstance(item, IndexCommand):
 				textList.append("[:index mark %s]" % item.index)
 			elif isinstance(item, CharacterModeCommand):
@@ -723,6 +729,10 @@ class SynthDriver(synthDriverHandler.SynthDriver):
 		except Exception:
 			log.error("DECtalk failed to speak", exc_info=True)
 			self._onDoneSpeaking()
+
+	def _prepare_text(self, text):
+		text = STRUCTURAL_DASH_RE.sub(" ", text)
+		return MULTIPLE_SPACES_RE.sub(" ", text)
 
 	def _send_memory_control_command(self, command):
 		if not self._useMemoryBuffers or not self.handle:
