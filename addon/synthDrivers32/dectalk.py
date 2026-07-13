@@ -59,6 +59,7 @@ WM_CLOSE = 0x0010
 WM_DESTROY = 0x0002
 WM_QUIT = 0x0012
 WNDPROC = WINFUNCTYPE(c_ssize_t, c_void_p, c_uint, c_void_p, c_void_p)
+DECIMAL_POINT_RE = re.compile(r"(?<=\d)\.(?=\d)")
 STRUCTURAL_DASH_RE = re.compile(
 	r"(?<=\s)[\-–—](?=\s)"
 	r"|^[\-–—](?=\s)",
@@ -731,6 +732,7 @@ class SynthDriver(synthDriverHandler.SynthDriver):
 			self._onDoneSpeaking()
 
 	def _prepare_text(self, text):
+		text = DECIMAL_POINT_RE.sub(" point ", text)
 		text = STRUCTURAL_DASH_RE.sub(" ", text)
 		return MULTIPLE_SPACES_RE.sub(" ", text)
 
