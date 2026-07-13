@@ -19,6 +19,12 @@ if sizeof(c_void_p) == 8:
 		def _set_spf(self, value):
 			self._remoteService.setParam("spf", value)
 
+		def _get_inflection(self):
+			return self._remoteService.getParam("inflection")
+
+		def _set_inflection(self, value):
+			self._remoteService.setParam("inflection", value)
+
 else:
 	import importlib.util
 

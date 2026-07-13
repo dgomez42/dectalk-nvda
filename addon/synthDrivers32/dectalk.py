@@ -680,12 +680,13 @@ class SynthDriver(synthDriverHandler.SynthDriver):
 			"[:skip none]",
 			"[:mode spell off]",
 			"[:punctuation none]",
+			"[:period 0]",
+			"[:comma 0]",
+			"[:period -380]",
+			"[:comma -40]",
+			"[:dv ap %d]" % self.dt_pitch,
+			"[:dv pr %d]" % self.dt_inflection,
 		]
-		if not getattr(self.dectalk, "_supportsSpeakerParams", False):
-			textList.extend([
-				"[:dv ap %d]" % self.dt_pitch,
-				"[:dv pr %d]" % self.dt_inflection,
-			])
 		for item in speechSequence:
 			if isinstance(item, str):
 				textList.append(item)
@@ -831,8 +832,6 @@ class SynthDriver(synthDriverHandler.SynthDriver):
 				lowParams,
 				highParams,
 			)
-			self.dt_pitch = params.average_pitch
-			self.dt_inflection = params.pitch_range
 			self.dectalk.TextToSpeechSetSpeakerParams(self.handle, byref(params))
 		except Exception:
 			log.error("DECtalk failed to apply speaker parameters", exc_info=True)
